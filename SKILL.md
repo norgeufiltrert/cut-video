@@ -5,6 +5,13 @@ description: Tighten a long recording aggressively — remove silences, fillers,
 
 # Cut Video
 
+> **Norge Ufiltrert / Grok Bot setup (added by norgeufiltrert):**
+> - Language: most of our videos are Norwegian. Run Whisper with `--model small` (or `medium` for noisy audio) and **no `--language` flag** so it auto-detects; use `--language no` when you know the clip is Norwegian. The `.en` models only understand English.
+> - Computer: `-hwaccel videotoolbox` and `h264_videotoolbox` only work on a Mac. On Linux (e.g. Grok Bot's cloud computer) drop `-hwaccel videotoolbox` and encode with `-c:v libx264`.
+> - Install once: `ffmpeg`, `pip install -U openai-whisper` (on a Mac: `brew install ffmpeg`).
+> - Word alignment (MFA): for Norwegian, check which pretrained models exist with `mfa model download acoustic` (lists them) and use a Norwegian acoustic model + dictionary if listed instead of `english_mfa`. If there is none, skip MFA and use the silencedetect / Whisper fallback this skill describes, then verify each cut by listening.
+
+
 Tighten a long-form recording **aggressively**: remove silences, fillers, hedges, weak transitions, false starts, and repetitions. Preserves laughs and comedic pauses. Outputs a cleaned MP4 ready to drop into CapCut for layouts/zooms/memes.
 
 > **This skill is more accurate than cutting from Whisper alone.** Cuts are driven by **Montreal Forced Aligner (MFA)** word boundaries (~10–20ms precision, with true inter-word silences as explicit intervals), not Whisper timestamps (±100–300ms, with pauses embedded inside word durations). Whisper is used only to produce the transcript *text* that MFA aligns to the audio. The result: tighter cuts, no clipped word onsets/tails, and reliable silence detection.
@@ -59,8 +66,8 @@ MFA is a **forced aligner, not a transcriber** — it needs a transcript to alig
 ffmpeg -y -hwaccel videotoolbox -i /tmp/cut-video/$NAME/proxy.mp4 \
   -vn -ac 1 -ar 16000 /tmp/cut-video/$NAME/audio.wav
 whisper /tmp/cut-video/$NAME/audio.wav \
-  --model tiny.en --word_timestamps True --output_format json \
-  --output_dir /tmp/cut-video/$NAME --language en
+  --model small --word_timestamps True --output_format json \
+  --output_dir /tmp/cut-video/$NAME
 ```
 
 **Model choice (revised 2026-07-02 — "we only need the words" was WRONG):** the transcript text IS the alignment input, so transcript errors become timing errors. On the `AI is bad at jokes` run, `tiny.en` dropped exactly the words the old warning predicted ("bland", "slop"), misheard "Compare this to" as "comparative is", and collapsed full-line retakes — and MFA, aligning that wrong text, drifted 1–6s across the back half. Use **`tiny.en` only for a first fast pass to see the take structure**; if the transcript shows retakes/repetitions, or the footage is noisy/outdoor, the per-region ground-truth pass (Step 2.5) with `small.en` supplies the real cut times anyway. (A full-pass `small.en` transcript is a reasonable upgrade for the MFA input too — ~1–2 min on a 5-min video — but it ALSO collapses retakes, so it does not remove the need for Step 2.5.) For non-English use `--model base` and drop `--language`. We keep `--word_timestamps True` only so whisper times survive as a cross-check/fallback (Step 1.5 caveats, 2a-legacy) — never as the primary cut source.
@@ -202,7 +209,7 @@ MFA gives you the take STRUCTURE (what was said, roughly where). It does not rel
 for n in "r1:5.5:8.4" "r2:17.0:6.0" "r3:30.5:6.0"; do
   f=${n%%:*}; rest=${n#*:}; o=${rest%%:*}; t=${rest##*:}
   ffmpeg -y -hide_banner -loglevel error -ss $o -t $t -i audio.wav gt/$f.wav
-  whisper gt/$f.wav --model small.en --word_timestamps True --output_format json --output_dir gt --language en >/dev/null 2>&1
+  whisper gt/$f.wav --model small --word_timestamps True --output_format json --output_dir gt >/dev/null 2>&1
   python3 -c "
 import json
 d=json.load(open('gt/$f.json'))
